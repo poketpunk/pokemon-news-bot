@@ -55,27 +55,35 @@ def generate_blogger_post(title, summary, link):
 def run():
   print("--- НАЧАЛО РАБОТЫ СКРИПТА ---")
   if not TELEGRAM_BOT_TOKEN or not TELEGRAM_CHAT_ID:
-    print(
-        "❌ Ошибка: Не заданы секреты TG_TOKEN или TG_CHAT в Settings ->"
-        " Secrets!"
-    )
+    print("❌ Ошибка: Не заданы секреты TG_TOKEN или TG_CHAT!")
     return
 
-  # Читаем историю
   last_link = ""
   if os.path.exists("last_news.txt"):
     with open("last_news.txt", "r", encoding="utf-8") as f:
       last_link = f.read().strip()
 
   latest_entry = None
+  headers = {
+      "User-Agent": (
+          "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML,"
+          " like Gecko) Chrome/120.0.0.0 Safari/537.36"
+      )
+  }
+
   for feed_url in RSS_FEEDS:
     try:
-      feed = feedparser.parse(feed_url)
-      if feed.entries:
-        latest_entry = feed.entries[0]
-        break
+      print(f"Пытаюсь скачать: {feed_url}")
+      response = requests.get(feed_url, headers=headers, timeout=10)
+      if response.status_code == 200:
+        feed = feedparser.parse(response.content)
+        if feed.entries:
+          latest_entry = feed.entries[0]
+          break
+      else:
+        print(f"Сайт вернул код ошибки: {response.status_code}")
     except Exception as e:
-      print(f"Ошибка парсинга {feed_url}: {e}")
+      print(f"Ошибка запроса к {feed_url}: {e}")
 
   if not latest_entry:
     print("❌ Не удалось получить новости из RSS.")

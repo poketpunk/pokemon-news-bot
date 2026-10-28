@@ -11,19 +11,94 @@ TELEGRAM_CHAT_ID = os.getenv("TG_CHAT")
 MAIN_URL = "https://www.pokebeach.com/"
 
 
-def translate_to_russian(text):
+def translate_text(text):
   if not text:
     return ""
   try:
-    # Переводим текст с английского на русский
-    translated = GoogleTranslator(source="en", target="ru").translate(text)
-    return translated
+    # Переводим текст с английского на русский (делим на части, если текст длинный)
+    translator = GoogleTranslator(source="en", target="ru")
+    if len(text) > 4000:
+      text = text[:4000]
+    return translator.translate(text)
   except Exception as e:
     print(f"Ошибка перевода: {e}")
-    return text  # Если вдруг сбой, возвращаем оригинал
+    return text
 
 
-def generate_blogger_post(title, summary, link):
+def run():
+  print("--- НАЧАЛО РАБОТЫ СКРИПТА (ПОЛНЫЙ ПАРСИНГ И ПЕРЕВОД) ---")
+  if not TELEGRAM_BOT_TOKEN or not TELEGRAM_CHAT_ID:
+    print("❌ Ошибка: Не заданы секреты TG_TOKEN или TG_CHAT!")
+    return
+
+  last_link = ""
+  if os.path.exists("last_news.txt"):
+    with open("last_news.txt", "r", encoding="utf-8") as f:
+      last_link = f.read().strip()
+
+  headers = {
+      "User-Agent": (
+          "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML,"
+          " like Gecko) Chrome/120.0.0.0 Safari/537.36"
+      )
+  }
+
+  try:
+    print(f"Загружаю главную страницу: {MAIN_URL}")
+    response = requests.get(MAIN_URL, headers=headers, timeout=15)
+    if response.status_code != 200:
+      print("❌ Сайт не отдал главную страницу.")
+      return
+
+    soup = BeautifulSoup(response.text, "html.parser")
+    article = soup.find("article")
+    if not article:
+      print("❌ Не удалось найти статьи на странице.")
+      return
+
+    title_tag = article.find("h2") or article.find("h1")
+    if not title_tag or not title_tag.find("a"):
+      print("❌ Не найден заголовок статьи.")
+      return
+
+    link = title_tag.find("a")["href"]
+    orig_title = title_tag.get_text(strip=True)
+
+    print(f"Найдена свежая ссылка: {link}")
+
+    if link == last_link:
+      print("ℹ️ Эта новость уже публиковалась ранее. Пропускаем.")
+      return
+
+    # Заходим внутрь самой статьи, чтобы забрать полный текст
+    print("Загружаю полный текст статьи...")
+    art_response = requests.get(link, headers=headers, timeout=15)
+    full_text = ""
+    if art_response.status_code == 200:
+      art_soup = BeautifulSoup(art_response.text, "html.parser")
+      content_div = art_soup.find("div", class_="entry-content")
+      if content_div:
+        # Собираем все абзацы текста из статьи
+        paragraphs = content_div.find_all("p")
+        full_text = "\n\n".join([p.get_text(strip=True) for p in paragraphs])
+
+    if not full_text:
+      full_text = "Свежие подробности читайте в источнике!"
+
+  except Exception as e:
+    print(f"❌ Ошибка при парсинге: {e}")
+    return
+
+  # Переводим заголовок и весь текст на русский язык
+  print("Перевожу заголовок и текст на русский...")
+  ru_title = translate_text(orig_title)
+  ru_body = translate_text(full_text)
+
+  # Обрезаем текст, если он слишком огромный для одного поста в телеграм (оставляем ~3000 символов)
+  if len(ru_body) > 3000:
+    ru_body = ru_body[:3000] + "...\n\n*(Текст сокращен, читайте далее в источнике)*"
+
+  # Блогерское оформление
   intros = [
       "🚨 **НАРОД, ТУТ ЖЕСТЬ В МИРЕ ПОКЕМОНОВ!**",
       "🔥 **СВЕЖИЙ ИНФОПОВОД ПОДЪЕХАЛ!**",
@@ -44,82 +119,12 @@ def generate_blogger_post(title, summary, link):
       ),
   ]
 
-  intro = random.choice(intros)
-  outro = random.choice(outros)
-
-  # Переводим заголовок и сам текст на русский язык
-  ru_title = translate_to_russian(title)
-  ru_summary = translate_to_russian(summary)
-
-  if not ru_summary:
-    ru_summary = "Свежие подробности читайте в источнике!"
-  if len(ru_summary) > 300:
-    ru_summary = ru_summary[:300] + "..."
-
-  return (
-      f"{intro}\n\n📌 **{ru_title}**\n\n{ru_summary}\n\n{outro}\n\n🔗 [Читать"
-      f" полный источник]({link})"
+  post_text = (
+      f"{random.choice(intros)}\n\n📌 **{ru_title}**\n\n{ru_body}\n\n{random.choice(outros)}\n\n🔗"
+      f" [Читать полный источник]({link})"
   )
 
-
-def run():
-  print("--- НАЧАЛО РАБОТЫ СКРИПТА (ПЕРЕВОДЧИК) ---")
-  if not TELEGRAM_BOT_TOKEN or not TELEGRAM_CHAT_ID:
-    print("❌ Ошибка: Не заданы секреты TG_TOKEN или TG_CHAT!")
-    return
-
-  last_link = ""
-  if os.path.exists("last_news.txt"):
-    with open("last_news.txt", "r", encoding="utf-8") as f:
-      last_link = f.read().strip()
-
-  headers = {
-      "User-Agent": (
-          "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML,"
-          " like Gecko) Chrome/120.0.0.0 Safari/537.36"
-      )
-  }
-
-  try:
-    print(f"Загружаю сайт: {MAIN_URL}")
-    response = requests.get(MAIN_URL, headers=headers, timeout=15)
-    if response.status_code != 200:
-      print("❌ Сайт не отдал страницу.")
-      return
-
-    soup = BeautifulSoup(response.text, "html.parser")
-    article = soup.find("article")
-    if not article:
-      print("❌ Не удалось найти статьи на странице.")
-      return
-
-    title_tag = article.find("h2") or article.find("h1")
-    if not title_tag or not title_tag.find("a"):
-      print("❌ Не найден заголовок статьи.")
-      return
-
-    link = title_tag.find("a")["href"]
-    title = title_tag.get_text(strip=True)
-
-    excerpt_tag = article.find("div", class_="entry-content") or article.find(
-        "p"
-    )
-    summary = excerpt_tag.get_text(strip=True) if excerpt_tag else ""
-
-  except Exception as e:
-    print(f"❌ Ошибка при парсинге сайта: {e}")
-    return
-
-  print(f"Найдена новость: {title}")
-  print(f"Ссылка: {link}")
-
-  if link == last_link:
-    print("ℹ️ Эта новость уже публиковалась ранее. Пропускаем.")
-    return
-
-  # Генерируем пост (тут внутри происходит автоматический перевод)
-  post_text = generate_blogger_post(title, summary, link)
-
+  # Отправляем в Telegram
   url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
   payload = {
       "chat_id": TELEGRAM_CHAT_ID,
@@ -133,7 +138,7 @@ def run():
   print(f"Текст ответа: {response.text}")
 
   if response.status_code == 200:
-    print("✅ УСПЕШНО! Новость переведена и отправлена в Telegram.")
+    print("✅ УСПЕШНО! Полный переведенный пост отправлен в Telegram.")
     with open("last_news.txt", "w", encoding="utf-8") as f:
       f.write(link)
   else:

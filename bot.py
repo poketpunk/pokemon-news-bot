@@ -1,21 +1,26 @@
 import os
 import random
 import re
-import feedparser
+from bs4 import BeautifulSoup
+from deep_translator import GoogleTranslator
 import requests
 
 TELEGRAM_BOT_TOKEN = os.getenv("TG_TOKEN")
 TELEGRAM_CHAT_ID = os.getenv("TG_CHAT")
 
-RSS_FEEDS = [
-    "https://www.pokebeach.com/feed",
-    "https://www.pokeguardian.com/feed",
-]
+MAIN_URL = "https://www.pokebeach.com/"
 
 
-def clean_html(raw_html):
-  cleanr = re.compile("<.*?>")
-  return re.sub(cleanr, "", raw_html).strip()
+def translate_to_russian(text):
+  if not text:
+    return ""
+  try:
+    # Переводим текст с английского на русский
+    translated = GoogleTranslator(source="en", target="ru").translate(text)
+    return translated
+  except Exception as e:
+    print(f"Ошибка перевода: {e}")
+    return text  # Если вдруг сбой, возвращаем оригинал
 
 
 def generate_blogger_post(title, summary, link):
@@ -42,18 +47,23 @@ def generate_blogger_post(title, summary, link):
   intro = random.choice(intros)
   outro = random.choice(outros)
 
-  clean_summary = clean_html(summary)
-  if len(clean_summary) > 300:
-    clean_summary = clean_summary[:300] + "..."
+  # Переводим заголовок и сам текст на русский язык
+  ru_title = translate_to_russian(title)
+  ru_summary = translate_to_russian(summary)
+
+  if not ru_summary:
+    ru_summary = "Свежие подробности читайте в источнике!"
+  if len(ru_summary) > 300:
+    ru_summary = ru_summary[:300] + "..."
 
   return (
-      f"{intro}\n\n📌 **{title}**\n\n{clean_summary}\n\n{outro}\n\n🔗 [Читать"
+      f"{intro}\n\n📌 **{ru_title}**\n\n{ru_summary}\n\n{outro}\n\n🔗 [Читать"
       f" полный источник]({link})"
   )
 
 
 def run():
-  print("--- НАЧАЛО РАБОТЫ СКРИПТА ---")
+  print("--- НАЧАЛО РАБОТЫ СКРИПТА (ПЕРЕВОДЧИК) ---")
   if not TELEGRAM_BOT_TOKEN or not TELEGRAM_CHAT_ID:
     print("❌ Ошибка: Не заданы секреты TG_TOKEN или TG_CHAT!")
     return
@@ -63,7 +73,6 @@ def run():
     with open("last_news.txt", "r", encoding="utf-8") as f:
       last_link = f.read().strip()
 
-  latest_entry = None
   headers = {
       "User-Agent": (
           "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML,"
@@ -71,27 +80,35 @@ def run():
       )
   }
 
-  for feed_url in RSS_FEEDS:
-    try:
-      print(f"Пытаюсь скачать: {feed_url}")
-      response = requests.get(feed_url, headers=headers, timeout=10)
-      if response.status_code == 200:
-        feed = feedparser.parse(response.content)
-        if feed.entries:
-          latest_entry = feed.entries[0]
-          break
-      else:
-        print(f"Сайт вернул код ошибки: {response.status_code}")
-    except Exception as e:
-      print(f"Ошибка запроса к {feed_url}: {e}")
+  try:
+    print(f"Загружаю сайт: {MAIN_URL}")
+    response = requests.get(MAIN_URL, headers=headers, timeout=15)
+    if response.status_code != 200:
+      print("❌ Сайт не отдал страницу.")
+      return
 
-  if not latest_entry:
-    print("❌ Не удалось получить новости из RSS.")
+    soup = BeautifulSoup(response.text, "html.parser")
+    article = soup.find("article")
+    if not article:
+      print("❌ Не удалось найти статьи на странице.")
+      return
+
+    title_tag = article.find("h2") or article.find("h1")
+    if not title_tag or not title_tag.find("a"):
+      print("❌ Не найден заголовок статьи.")
+      return
+
+    link = title_tag.find("a")["href"]
+    title = title_tag.get_text(strip=True)
+
+    excerpt_tag = article.find("div", class_="entry-content") or article.find(
+        "p"
+    )
+    summary = excerpt_tag.get_text(strip=True) if excerpt_tag else ""
+
+  except Exception as e:
+    print(f"❌ Ошибка при парсинге сайта: {e}")
     return
-
-  title = latest_entry.title
-  summary = latest_entry.get("summary", "")
-  link = latest_entry.link
 
   print(f"Найдена новость: {title}")
   print(f"Ссылка: {link}")
@@ -100,6 +117,7 @@ def run():
     print("ℹ️ Эта новость уже публиковалась ранее. Пропускаем.")
     return
 
+  # Генерируем пост (тут внутри происходит автоматический перевод)
   post_text = generate_blogger_post(title, summary, link)
 
   url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
@@ -115,7 +133,7 @@ def run():
   print(f"Текст ответа: {response.text}")
 
   if response.status_code == 200:
-    print("✅ УСПЕШНО! Новость отправлена в Telegram.")
+    print("✅ УСПЕШНО! Новость переведена и отправлена в Telegram.")
     with open("last_news.txt", "w", encoding="utf-8") as f:
       f.write(link)
   else:

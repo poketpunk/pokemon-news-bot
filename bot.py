@@ -7,7 +7,6 @@ import requests
 TELEGRAM_BOT_TOKEN = os.getenv("TG_TOKEN")
 TELEGRAM_CHAT_ID = os.getenv("TG_CHAT")
 
-# Список надежных источников новостей по Pokémon TCG
 SOURCES = [
     {"name": "PokeBeach", "url": "https://www.pokebeach.com/"},
     {"name": "PokeGuardian", "url": "https://www.pokeguardian.com/"},
@@ -49,8 +48,6 @@ def get_latest_news_from_source(source):
       return None
 
     soup = BeautifulSoup(response.text, "html.parser")
-
-    # Универсальный поиск первой статьи на главной
     article = soup.find("article") or soup.find("div", class_="post")
     if not article:
       return None
@@ -87,12 +84,11 @@ def run():
 
   latest_news = None
 
-  # Проходим по всем источникам и ищем первую доступную новость
   for source in SOURCES:
     news = get_latest_news_from_source(source)
     if news and news["link"]:
       latest_news = news
-      break   нашли свежую
+      break
 
   if not latest_news:
     print("❌ Не удалось получить новости ни с одного источника.")
@@ -108,7 +104,6 @@ def run():
     print("ℹ️ Эта новость уже публиковалась ранее. Пропускаем.")
     return
 
-  # Загружаем полный текст статьи по найденной ссылке
   print("Загружаю полный текст статьи...")
   headers = {
       "User-Agent": (

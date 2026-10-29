@@ -2,7 +2,6 @@ import os
 import random
 import re
 from bs4 import BeautifulSoup
-from deep_translator import GoogleTranslator
 import requests
 
 TELEGRAM_BOT_TOKEN = os.getenv("TG_TOKEN")
@@ -15,18 +14,28 @@ def translate_text(text):
   if not text:
     return ""
   try:
-    # Переводим текст с английского на русский (делим на части, если текст длинный)
-    translator = GoogleTranslator(source="en", target="ru")
-    if len(text) > 4000:
-      text = text[:4000]
-    return translator.translate(text)
+    # Используем прямой общедоступный эндпоинт переводчика Google
+    url = "https://translate.googleapis.com/translate_a/single"
+    params = {
+        "client": "gtx",
+        "sl": "en",
+        "tl": "ru",
+        "dt": "t",
+        "q": text[:4000],  # ограничение на длину куска
+    }
+    response = requests.get(url, params=params, timeout=10)
+    if response.status_code == 200:
+      data = response.json()
+      # Собираем переведенные предложения обратно в текст
+      translated_text = "".join([item[0] for item in data[0] if item[0]])
+      return translated_text
   except Exception as e:
     print(f"Ошибка перевода: {e}")
-    return text
+  return text
 
 
 def run():
-  print("--- НАЧАЛО РАБОТЫ СКРИПТА (ПОЛНЫЙ ПАРСИНГ И ПЕРЕВОД) ---")
+  print("--- НАЧАЛО РАБОТЫ СКРИПТА (СТАБИЛЬНЫЙ ПЕРЕВОД) ---")
   if not TELEGRAM_BOT_TOKEN or not TELEGRAM_CHAT_ID:
     print("❌ Ошибка: Не заданы секреты TG_TOKEN или TG_CHAT!")
     return
@@ -70,7 +79,6 @@ def run():
       print("ℹ️ Эта новость уже публиковалась ранее. Пропускаем.")
       return
 
-    # Заходим внутрь самой статьи, чтобы забрать полный текст
     print("Загружаю полный текст статьи...")
     art_response = requests.get(link, headers=headers, timeout=15)
     full_text = ""
@@ -78,7 +86,6 @@ def run():
       art_soup = BeautifulSoup(art_response.text, "html.parser")
       content_div = art_soup.find("div", class_="entry-content")
       if content_div:
-        # Собираем все абзацы текста из статьи
         paragraphs = content_div.find_all("p")
         full_text = "\n\n".join([p.get_text(strip=True) for p in paragraphs])
 
@@ -89,16 +96,13 @@ def run():
     print(f"❌ Ошибка при парсинге: {e}")
     return
 
-  # Переводим заголовок и весь текст на русский язык
-  print("Перевожу заголовок и текст на русский...")
+  print("Перевожу заголовок и текст на русский язык...")
   ru_title = translate_text(orig_title)
   ru_body = translate_text(full_text)
 
-  # Обрезаем текст, если он слишком огромный для одного поста в телеграм (оставляем ~3000 символов)
   if len(ru_body) > 3000:
     ru_body = ru_body[:3000] + "...\n\n*(Текст сокращен, читайте далее в источнике)*"
 
-  # Блогерское оформление
   intros = [
       "🚨 **НАРОД, ТУТ ЖЕСТЬ В МИРЕ ПОКЕМОНОВ!**",
       "🔥 **СВЕЖИЙ ИНФОПОВОД ПОДЪЕХАЛ!**",
@@ -124,7 +128,6 @@ def run():
       f" [Читать полный источник]({link})"
   )
 
-  # Отправляем в Telegram
   url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
   payload = {
       "chat_id": TELEGRAM_CHAT_ID,
@@ -138,7 +141,7 @@ def run():
   print(f"Текст ответа: {response.text}")
 
   if response.status_code == 200:
-    print("✅ УСПЕШНО! Полный переведенный пост отправлен в Telegram.")
+    print("✅ УСПЕШНО! Переведенный пост отправлен в Telegram.")
     with open("last_news.txt", "w", encoding="utf-8") as f:
       f.write(link)
   else:

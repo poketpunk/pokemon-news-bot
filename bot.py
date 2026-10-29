@@ -65,14 +65,14 @@ def get_latest_news_from_source(source):
     if not title:
       title = title_tag.get_text(strip=True)
 
-    return {"title": title, "link": link}
+    return {"name": source["name"], "title": title, "link": link}
   except Exception as e:
     print(f"Ошибка при парсинге {source['name']}: {e}")
     return None
 
 
 def run():
-  print("--- НАЧАЛО РАБОТЫ СКРИПТА (МУЛЬТИ-ИСТОЧНИКИ) ---")
+  print("--- НАЧАЛО РАБОТЫ СКРИПТА (ОПРОС ВСЕХ ИСТОЧНИКОВ) ---")
   if not TELEGRAM_BOT_TOKEN or not TELEGRAM_CHAT_ID:
     print("❌ Ошибка: Не заданы секреты TG_TOKEN или TG_CHAT!")
     return
@@ -82,27 +82,29 @@ def run():
     with open("last_news.txt", "r", encoding="utf-8") as f:
       last_link = f.read().strip()
 
-  latest_news = None
+  target_news = None
 
+  # Проходим по ВСЕМ источникам
   for source in SOURCES:
     news = get_latest_news_from_source(source)
     if news and news["link"]:
-      latest_news = news
-      break
+      print(f"Найдена последняя новость на {news['name']}: {news['link']}")
+      # Если эта новость еще не публиковалась — берем её в работу!
+      if news["link"] != last_link:
+        target_news = news
+        break
+      else:
+        print(f"ℹ️ Эта новость с {news['name']} уже была опубликована.")
 
-  if not latest_news:
-    print("❌ Не удалось получить новости ни с одного источника.")
+  if not target_news:
+    print("ℹ️ Новых новостей ни на одном из сайтов нет.")
     return
 
-  title = latest_news["title"]
-  link = latest_news["link"]
+  title = target_news["title"]
+  link = target_news["link"]
 
-  print(f"Найдена новость: {title}")
+  print(f"🔥 Публикуем новую статью: {title}")
   print(f"Ссылка: {link}")
-
-  if link == last_link:
-    print("ℹ️ Эта новость уже публиковалась ранее. Пропускаем.")
-    return
 
   print("Загружаю полный текст статьи...")
   headers = {
@@ -175,7 +177,7 @@ def run():
   print(f"Текст ответа: {response.text}")
 
   if response.status_code == 200:
-    print("✅ УСПЕШНО! Новость из мульти-источника опубликована.")
+    print("✅ УСПЕШНО! Новость опубликована.")
     with open("last_news.txt", "w", encoding="utf-8") as f:
       f.write(link)
   else:
